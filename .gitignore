@@ -25,3 +25,7 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Auto-downloaded model bundle and user-specific generated config
+hand_landmarker.task
+config.json
