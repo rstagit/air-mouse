@@ -1,0 +1,85 @@
+name: Build HandMouseControl for All Platforms
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+        python-version: ['3.10']
+        
+    runs-on: ${{ matrix.os }}
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install dependencies
+      run: |
+        pip install --upgrade pip
+        pip install pyinstaller
+        pip install -r requirements.txt
+
+    - name: Install system dependencies (Linux)
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libgl1-mesa-glx libglib2.0-0 libsm6 libxext6 libxrender-dev libgomp1
+
+    - name: Download hand_landmarker.task
+      run: |
+        curl -L -o hand_landmarker.task \
+          "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task"
+
+    - name: Build executable with PyInstaller
+      run: |
+        pyinstaller --onefile \
+          --name HandMouseControl \
+          --collect-all mediapipe \
+          --collect-all cv2 \
+          --collect-all numpy \
+          --add-data "hand_landmarker.task;." \
+          --add-data "config.json;." \
+          --hidden-import mediapipe.tasks.python.vision \
+          --hidden-import mediapipe.tasks.python.vision.hand_landmarker \
+          hand_mouse_control.py
+
+    - name: Rename artifacts for each platform
+      run: |
+        if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
+          mv dist/HandMouseControl.exe dist/HandMouseControl-Windows.exe
+        elif [[ "${{ matrix.os }}" == "macos-latest" ]]; then
+          mv dist/HandMouseControl dist/HandMouseControl-macOS
+        else
+          mv dist/HandMouseControl dist/HandMouseControl-Linux
+        fi
+
+    - name: Upload artifact (Windows)
+      if: matrix.os == 'windows-latest'
+      uses: actions/upload-artifact@v4
+      with:
+        name: HandMouseControl-Windows-EXE
+        path: dist/HandMouseControl-Windows.exe
+
+    - name: Upload artifact (macOS)
+      if: matrix.os == 'macos-latest'
+      uses: actions/upload-artifact@v4
+      with:
+        name: HandMouseControl-macOS
+        path: dist/HandMouseControl-macOS
+
+    - name: Upload artifact (Linux)
+      if: matrix.os == 'ubuntu-latest'
+      uses: actions/upload-artifact@v4
+      with:
+        name: HandMouseControl-Linux
+        path: dist/HandMouseControl-Linux
