@@ -1,0 +1,84 @@
+name: Build and Release HandMouseControl
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+        python-version: ['3.10']
+        
+    runs-on: ${{ matrix.os }}
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install dependencies
+      run: |
+        pip install --upgrade pip
+        pip install pyinstaller
+        pip install -r requirements.txt
+
+    - name: Install system dependencies (Linux)
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          libgl1-mesa-glx libglib2.0-0 libsm6 libxext6 libxrender-dev \
+          libgomp1 python3-xlib libxcb-xinerama0 libxcb-icccm4 \
+          libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0
+
+    - name: Download hand_landmarker.task
+      run: |
+        curl -L -o hand_landmarker.task \
+          "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task"
+
+    - name: Build executable
+      run: |
+        pyinstaller --onefile \
+          --name HandMouseControl \
+          --collect-all mediapipe \
+          --collect-all cv2 \
+          --collect-all numpy \
+          --add-data "hand_landmarker.task;." \
+          --add-data "config.json;." \
+          --add-data "config.example.json;." \
+          --hidden-import mediapipe.tasks.python.vision \
+          --hidden-import mediapipe.tasks.python.vision.hand_landmarker \
+          --hidden-import cv2 \
+          --hidden-import pyautogui \
+          --hidden-import numpy \
+          --hidden-import platform_actions \
+          --hidden-import smoothing \
+          --hidden-import calibration \
+          --hidden-import rendering \
+          --hidden-import gesture_engine \
+          --hidden-import config \
+          hand_mouse_control.py
+
+    - name: Rename artifacts
+      run: |
+        if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
+          mv dist/HandMouseControl.exe dist/HandMouseControl-Windows.exe
+        elif [[ "${{ matrix.os }}" == "macos-latest" ]]; then
+          mv dist/HandMouseControl dist/HandMouseControl-macOS
+        else
+          mv dist/HandMouseControl dist/HandMouseControl-Linux
+        fi
+
+    - name: Upload to Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: dist/HandMouseControl-*
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
