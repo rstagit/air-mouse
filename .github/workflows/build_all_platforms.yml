@@ -66,8 +66,8 @@ jobs:
           --collect-all mediapipe \
           --collect-all cv2 \
           --collect-all numpy \
-          --add-data "hand_landmarker.task;." \
-          --add-data "config.json;." \
+          --add-data="hand_landmarker.task;." \
+          --add-data="config.json;." \
           --hidden-import mediapipe.tasks.python.vision \
           --hidden-import mediapipe.tasks.python.vision.hand_landmarker \
           hand_mouse_control.py
