@@ -124,9 +124,12 @@ jobs:
             "dist/${{ matrix.bin_name }}" --list-cameras
           fi
 
-      # Bundles the hand-landmark model together with the executable so the
-      # first run doesn't need internet access (see README, "Build exe"
-      # section, tip 5 -- this just automates that manual suggestion).
+      # Uses Python's own zipfile module instead of the `zip` CLI: a real
+      # run showed windows-latest does not have `zip` on PATH (curl is
+      # present and used above; zip is not), so this avoids depending on
+      # whatever archiving tools a given runner image happens to ship.
+      # external_attr is set manually because zipfile.write() doesn't
+      # preserve the Unix executable bit on its own the way `zip` does.
       - name: Package release archive
         shell: bash
         run: |
@@ -135,17 +138,21 @@ jobs:
           curl -L --fail --show-error -o package/hand_landmarker.task "$MODEL_URL"
           [ -f README.md ] && cp README.md package/
           [ -f LICENSE ] && cp LICENSE package/
-          (cd package && zip -r "../$ASSET_NAME" .)
+          python -c "
+          import os, zipfile, pathlib
+          folder = pathlib.Path('package')
+          zf = zipfile.ZipFile(os.environ['ASSET_NAME'], 'w', zipfile.ZIP_DEFLATED)
+          for f in sorted(folder.iterdir()): zi = zipfile.ZipInfo.from_file(f, arcname=f.name); zi.external_attr = (os.stat(f).st_mode & 0xFFFF) << 16; zf.writestr(zi, open(f, 'rb').read())
+          zf.close()
+          "
 
-      # archive: false uploads the zip as-is (no zip-inside-a-zip), and makes
-      # the artifact's stored name the file's own name -- so `name:` below
-      # is intentionally omitted.
+      
       - name: Upload build artifact
         uses: actions/upload-artifact@v7
         with:
+          name: HandMouseControl-${{ matrix.platform_tag }}
           path: ${{ env.ASSET_NAME }}
           if-no-files-found: error
-          archive: false
 
   release:
     name: Publish GitHub Release
@@ -154,26 +161,31 @@ jobs:
     permissions:
       contents: write
     env:
-      # workflow_dispatch runs carry the tag in `inputs.tag`; tag-push runs
-      # carry it in `github.ref_name`. Exactly one of the two is set, and
-      # `&&` / `||` here is GitHub Actions' usual stand-in for a ternary.
+      
       RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
     steps:
+      
       - name: Download all platform archives
         uses: actions/download-artifact@v8
         with:
           path: release-assets
-          pattern: "HandMouseControl-*"
-          merge-multiple: true
 
       - name: List downloaded assets
-        run: ls -lh release-assets/
+        run: find release-assets -type f
 
       - name: Create GitHub Release
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$RELEASE_TAG" release-assets/*.zip \
+          mapfile -t ASSETS < <(find release-assets -type f -name '*.zip')
+          echo "Found ${#ASSETS[@]} asset(s):"
+          printf '  %s\n' "${ASSETS[@]}"
+          if [ "${#ASSETS[@]}" -eq 0 ]; then
+            echo "::error::No .zip assets found under release-assets/ -- aborting."
+            exit 1
+          fi
+          gh release create "$RELEASE_TAG" "${ASSETS[@]}" \
             --repo "${{ github.repository }}" \
             --title "Hand Mouse Control $RELEASE_TAG" \
             --generate-notes
